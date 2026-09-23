@@ -1,4 +1,4 @@
-#Customer Shopping Behavior Analysis
+## **Customer Shopping Behavior Analysis**
 
 **Overview**
 An end-to-end Data Analytics project focused on analyzing customer shopping behavior, purchasing patterns, and business performance.
