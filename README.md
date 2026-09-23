@@ -5,7 +5,28 @@ An end-to-end Data Analytics project focused on analyzing customer shopping beha
 
 The project follows a structured analytics workflow, starting with data cleaning and preprocessing in Python/Pandas, followed by analytical querying in Microsoft SQL Server, and concluding with an interactive Power BI dashboard for data visualization and business insights.
 
-**Project Workflow**
+##Project Workflow
+
+```mermaid
+flowchart TD
+    A[Excel Dataset]
+    B[Python + Pandas]
+    C[Data Cleaning & Transformation]
+    D[Cleaned CSV]
+    E[Microsoft SQL Server]
+    F[SQL Analysis]
+    G[Power BI]
+    H[Interactive Dashboard]
+
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+```
+
 
 Excel Dataset
 ↓
