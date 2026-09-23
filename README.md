@@ -7,19 +7,19 @@ The project follows a structured analytics workflow, starting with data cleaning
 
 **Project Workflow**
 
-  Excel Dataset
-      ↓
- Python + Pandas
-      ↓
+Excel Dataset
+↓
+Python + Pandas
+↓
 Data Cleaning &Transformation
-      ↓
- Cleaned CSV
-      ↓
+↓
+Cleaned CSV
+↓
 Microsoft SQL Server
-      ↓
-  SQL Analysis
-      ↓
-  Power BI
-      ↓
+↓
+SQL Analysis
+↓
+Power BI
+↓
 Interactive Dashboard
 
