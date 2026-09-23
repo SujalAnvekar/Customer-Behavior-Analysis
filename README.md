@@ -38,12 +38,13 @@ flowchart TD
 - Present data-driven insights through effective visualizations.
 
 **Technology Stack**
-Excel - Source dataset
-Python - Data preprocessing and cleaning
-Pandas - Data manipulation and transformation
-Google Colab - Data cleaning environment
-SQL - Business and analytical queries
-Power BI - Data visualization and dashboard development
+
+- Excel - Source dataset
+- Python - Data preprocessing and cleaning
+- Pandas - Data manipulation and transformation
+- Google Colab - Data cleaning environment
+- SQL - Business and analytical queries
+- Power BI - Data visualization and dashboard development
 
 
 
