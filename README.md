@@ -52,14 +52,14 @@ The raw Excel dataset was imported into Google Colab and processed using Python 
 
 **Key Activities**
 
-Data quality assessment
-Missing-value handling
-Duplicate detection and removal
-Data type validation
-Column standardization
-Data transformation
-Feature/column preparation for analysis
-Data consistency checks
+- Data quality assessment
+- Missing-value handling
+- Duplicate detection and removal
+- Data type validation
+- Column standardization
+- Data transformation
+- Feature/column preparation for analysis
+- Data consistency checks
 
 The cleaned dataset was exported as a CSV file for further analysis in SQL Server.
 
@@ -70,28 +70,28 @@ SQL was used to transform the cleaned data into meaningful analytical results an
 
 **SQL Concepts Used**
 
-SELECT
-WHERE
-GROUP BY
-ORDER BY
-Aggregate Functions
-CASE
-Joins
-Subqueries
-Common Table Expressions (CTEs)
-Window Functions
+- SELECT
+- WHERE
+- GROUP BY
+- ORDER BY
+- Aggregate Functions
+- CASE
+- Joins
+- Subqueries
+- Common Table Expressions (CTEs)
+- Window Functions
 
 **Analysis Areas**
 
-Revenue and sales performance
-Customer purchasing behavior
-Purchase frequency
-Product/category performance
-Customer segmentation
-Subscription behavior
-Customer ratings
-Discount usage
-Average purchase analysis
+- Revenue and sales performance
+- Customer purchasing behavior
+- Purchase frequency
+- Product/category performance
+- Customer segmentation
+- Subscription behavior
+- Customer ratings
+- Discount usage
+- Average purchase analysis
 
 **3. Power BI Dashboard**
 
@@ -99,23 +99,23 @@ The SQL-analyzed data was connected to Power BI to develop an interactive busine
 
 **Dashboard Features**
 
-KPI cards
-Interactive slicers
-Filters
-Customer analysis
-Sales analysis
-Category analysis
-Subscription analysis
-Product performance
-Interactive charts and visualizations
+- KPI cards
+- Interactive slicers
+- Filters
+- Customer analysis
+- Sales analysis
+- Category analysis
+- Subscription analysis
+- Product performance
+- Interactive charts and visualizations
 
 **Key Metrics**
 
-Total Revenue
-Total Customers
-Average Purchase Amount
-Total Purchases
-Average Rating
-Subscription Rate
+- Total Revenue
+- Total Customers
+- Average Purchase Amount
+- Total Purchases
+- Average Rating
+- Subscription Rate
 
 The dashboard enables users to interactively explore customer behavior and business performance across different dimensions.
