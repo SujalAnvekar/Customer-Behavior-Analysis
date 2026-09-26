@@ -47,9 +47,11 @@ flowchart TD
 - Power BI - Data visualization and dashboard development
 
 **1.Data Cleaning & Preprocessing**
+
 The raw Excel dataset was imported into Google Colab and processed using Python and Pandas.
 
 **Key Activities**
+
 Data quality assessment
 Missing-value handling
 Duplicate detection and removal
@@ -62,10 +64,12 @@ Data consistency checks
 The cleaned dataset was exported as a CSV file for further analysis in SQL Server.
 
 **2. SQL Server Analysis**
+
 The cleaned CSV dataset was imported into Microsoft SQL Server for structured data analysis.
 SQL was used to transform the cleaned data into meaningful analytical results and answer business-related questions.
 
 **SQL Concepts Used**
+
 SELECT
 WHERE
 GROUP BY
@@ -78,6 +82,7 @@ Common Table Expressions (CTEs)
 Window Functions
 
 **Analysis Areas**
+
 Revenue and sales performance
 Customer purchasing behavior
 Purchase frequency
@@ -89,9 +94,11 @@ Discount usage
 Average purchase analysis
 
 **3. Power BI Dashboard**
+
 The SQL-analyzed data was connected to Power BI to develop an interactive business intelligence dashboard.
 
 **Dashboard Features**
+
 KPI cards
 Interactive slicers
 Filters
@@ -103,6 +110,7 @@ Product performance
 Interactive charts and visualizations
 
 **Key Metrics**
+
 Total Revenue
 Total Customers
 Average Purchase Amount
