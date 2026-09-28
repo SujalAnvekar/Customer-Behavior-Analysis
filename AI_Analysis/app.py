@@ -183,7 +183,7 @@ st.markdown(
 )
 
 question = st.text_input(
-    label="",
+    "Question",
     placeholder="Ask a question about your customer data...",
     label_visibility="collapsed"
 )
