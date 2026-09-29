@@ -4,27 +4,35 @@ import time
 
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
 
 from database import execute_query
 
 
 # =========================================================
-# LOAD ENVIRONMENT
+# ENVIRONMENT
 # =========================================================
 
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not api_key:
-    raise ValueError("GEMINI_API_KEY not found in .env file")
-
-client = genai.Client(api_key=api_key)
+if not GEMINI_API_KEY:
+    raise ValueError(
+        "GEMINI_API_KEY is not configured in the .env file."
+    )
 
 
 # =========================================================
-# GEMINI MODEL FALLBACK
+# GEMINI CLIENT
+# =========================================================
+
+client = genai.Client(
+    api_key=GEMINI_API_KEY
+)
+
+
+# =========================================================
+# GEMINI MODELS
 # =========================================================
 
 AI_MODELS = [
@@ -41,10 +49,7 @@ AI_MODELS = [
 # =========================================================
 
 SCHEMA = """
-SQL Server database: Customer_behavior
-
-Table:
-customer_table
+Table: customer_table
 
 Columns:
 
@@ -67,46 +72,116 @@ payment_method
 frequency_of_purchases
 age_group
 purchase_freq_days
+
+Important:
+
+- purchase_amt represents purchase amount / revenue.
+- There is NO customer_segment column.
+- Customer segment must be derived using:
+    New      = previous_purchases = 1
+    Returning = previous_purchases BETWEEN 2 AND 10
+    Loyal     = previous_purchases > 10
+- Do not invent columns.
+- Do not use a date column because the dataset does not contain one.
 """
 
 
 # =========================================================
-# DIAGNOSTIC QUESTION DETECTION
+# DIAGNOSTIC KEYWORDS
 # =========================================================
 
 diagnostic_words = [
     "why",
     "reason",
-    "underperform",
-    "underperforming",
-    "performing worse",
-    "performing better",
+    "reasons",
     "factor",
     "factors",
-    "affect",
-    "affecting",
-    "improve",
+    "driver",
+    "drivers",
+    "cause",
+    "causes",
+    "impact",
+    "influence",
+    "explain",
+    "explanation",
+    "difference",
+    "differ",
+    "lower",
+    "higher",
+    "decline",
     "increase",
     "decrease",
-    "recommend",
-    "recommendation",
-    "problem",
-    "issue",
-    "decline",
-    "poor performance"
+    "performing differently"
 ]
 
 
-def is_diagnostic_question(question):
+# =========================================================
+# GEMINI CALL
+# =========================================================
 
-    question_lower = question.lower()
+def call_gemini(
+    prompt,
+    response_schema=None,
+    temperature=0.1
+):
 
-    for word in diagnostic_words:
+    last_error = None
 
-        if word in question_lower:
-            return True
+    for model in AI_MODELS:
 
-    return False
+        for attempt in range(2):
+
+            try:
+
+                config = {
+                    "temperature": temperature,
+                    "response_mime_type": "application/json"
+                }
+
+                if response_schema:
+                    config["response_schema"] = response_schema
+
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config
+                )
+
+                text = response.text.strip()
+
+                return json.loads(text)
+
+            except Exception as e:
+
+                last_error = e
+
+                error_text = str(e).lower()
+
+                # Retry temporary service failures
+                if (
+                    "503" in error_text
+                    or "unavailable" in error_text
+                    or "timeout" in error_text
+                ):
+                    time.sleep(1)
+                    continue
+
+                # Try next model for quota / model issues
+                if (
+                    "429" in error_text
+                    or "quota" in error_text
+                    or "resource_exhausted" in error_text
+                    or "not found" in error_text
+                    or "404" in error_text
+                ):
+                    break
+
+                # Other errors
+                break
+
+    raise RuntimeError(
+        f"Gemini request failed: {last_error}"
+    )
 
 
 # =========================================================
@@ -116,20 +191,29 @@ def is_diagnostic_question(question):
 def validate_sql(sql):
 
     if not sql:
-        raise ValueError("Empty SQL query generated.")
+        return False, "SQL query is empty."
 
     sql = sql.strip()
 
-    sql = sql.replace("```sql", "")
-    sql = sql.replace("```", "")
-    sql = sql.strip()
+    sql_lower = sql.lower()
 
-    if not sql.lower().startswith("select"):
+    # Must be SELECT
+    if not sql_lower.startswith("select"):
+        return False, "Only SELECT queries are allowed."
 
-        raise ValueError(
-            "Generated query is not a SELECT statement."
-        )
+    # Block multiple statements
+    if ";" in sql:
+        return False, "Multiple SQL statements are not allowed."
 
+    # Block SQL comments
+    if "--" in sql or "/*" in sql or "*/" in sql:
+        return False, "SQL comments are not allowed."
+
+    # Required table
+    if "customer_table" not in sql_lower:
+        return False, "Query must use customer_table."
+
+    # Block dangerous operations
     forbidden_keywords = [
         "insert ",
         "update ",
@@ -145,109 +229,16 @@ def validate_sql(sql):
         "revoke "
     ]
 
-    sql_lower = sql.lower()
-
     for keyword in forbidden_keywords:
 
         if keyword in sql_lower:
 
-            raise ValueError(
-                f"Unsafe SQL query detected: {keyword.strip()}"
+            return False, (
+                f"Unsafe SQL query detected: "
+                f"{keyword.strip()}"
             )
 
-    if "customer_table" not in sql_lower:
-
-        raise ValueError(
-            "Query must use customer_table."
-        )
-
-    return sql
-
-
-# =========================================================
-# GEMINI RESPONSE
-# =========================================================
-
-def generate_ai_response(prompt, config=None):
-
-    for model in AI_MODELS:
-
-        try:
-
-            print(f"\nTrying model: {model}")
-
-            start_time = time.time()
-
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=config
-            )
-
-            elapsed_time = time.time() - start_time
-
-            if response and response.text:
-
-                print(
-                    f"Gemini response received "
-                    f"in {elapsed_time:.2f} seconds."
-                )
-
-                return response
-
-            print(
-                f"{model} returned an empty response."
-            )
-
-        except Exception as e:
-
-            error_text = str(e)
-
-            print("\n===== GEMINI ERROR =====")
-            print("Model:", model)
-            print("Error type:", type(e).__name__)
-            print("Error:", error_text)
-            print("========================\n")
-
-            if (
-                "RESOURCE_EXHAUSTED" in error_text
-                and "PerDay" in error_text
-            ):
-
-                print(
-                    f"Daily quota exhausted for {model}."
-                )
-
-                continue
-
-            if (
-                "429" in error_text
-                and "PerDay" not in error_text
-            ):
-
-                print("Temporary rate limit detected.")
-
-                continue
-
-            if (
-                "503" in error_text
-                or "UNAVAILABLE" in error_text
-                or "500" in error_text
-            ):
-
-                print("Temporary Gemini server error.")
-
-                continue
-
-            print(
-                f"{model} failed. Trying next model..."
-            )
-
-    print(
-        "\nAll Gemini models are currently unavailable."
-    )
-
-    return None
+    return True, ""
 
 
 # =========================================================
@@ -257,91 +248,118 @@ def generate_ai_response(prompt, config=None):
 def format_result(result):
 
     if not result:
-        return "No data returned from SQL query."
+        return ""
 
-    columns = result["columns"]
-    rows = result["rows"]
+    columns = result.get("columns", [])
+    rows = result.get("rows", [])
 
-    formatted = []
+    if not columns or not rows:
+        return "No data returned."
+
+    lines = []
 
     for row in rows:
 
-        row_dict = {}
+        values = []
 
-        for i, column in enumerate(columns):
+        for column, value in zip(columns, row):
 
-            row_dict[column] = row[i]
+            values.append(
+                f"{column}={value}"
+            )
 
-        formatted.append(row_dict)
+        lines.append(
+            " | ".join(values)
+        )
 
-    return json.dumps(
-        formatted,
-        default=str,
-        indent=2
-    )
+    return "\n".join(lines)
 
 
 # =========================================================
-# GENERATE NORMAL SQL
+# NORMAL QUESTION → SQL
 # =========================================================
 
 def generate_normal_query(question):
 
     prompt = f"""
-You are an expert SQL Server data analyst.
+You are a SQL analyst working with Microsoft SQL Server.
 
-Convert the user's business question into ONE
-accurate SQL Server SELECT query.
+Your task is to convert the user's business question into ONE
+accurate SQL SELECT query.
 
 DATABASE SCHEMA:
-
 {SCHEMA}
 
 USER QUESTION:
-
 {question}
 
 RULES:
 
-1. Use only customer_table.
-2. Use only existing columns.
-3. Use SQL Server syntax.
-4. Only SELECT queries.
-5. Do not modify the database.
-6. Do not invent data.
-7. Do not invent columns.
-8. Return ONLY SQL.
-9. Do not use markdown.
-10. Do not provide explanations.
+1. Generate only one SELECT query.
+2. Use only customer_table.
+3. Do not modify data.
+4. Do not invent columns.
+5. Use purchase_amt for revenue or spending.
+6. Use appropriate aggregation such as:
+   SUM, AVG, COUNT, MIN, MAX.
+7. Return only the information required to answer the question.
+8. Do not return unrelated columns or metrics.
+9. Do not use dates.
+10. For customer segments, derive the segment using previous_purchases:
+      New = previous_purchases = 1
+      Returning = previous_purchases BETWEEN 2 AND 10
+      Loyal = previous_purchases > 10
+11. Use SQL Server syntax.
+12. Do not add SQL comments.
+13. Do not use multiple statements.
+14. If the question asks for the highest/lowest category,
+    location, item, segment, etc., return the relevant result.
+15. Keep the query focused and minimal.
+
+Return JSON only:
+
+{{
+    "can_answer": true,
+    "sql": "SELECT ...",
+    "reason": "Short explanation of what the query calculates."
+}}
+
+If the question cannot be answered from the available columns,
+return:
+
+{{
+    "can_answer": false,
+    "sql": "",
+    "reason": "Explain why the available data is insufficient."
+}}
 """
 
-    config = types.GenerateContentConfig(
-        temperature=0
-    )
-
-    response = generate_ai_response(
+    return call_gemini(
         prompt,
-        config=config
+        response_schema={
+            "type": "OBJECT",
+            "properties": {
+                "can_answer": {
+                    "type": "BOOLEAN"
+                },
+                "sql": {
+                    "type": "STRING"
+                },
+                "reason": {
+                    "type": "STRING"
+                }
+            },
+            "required": [
+                "can_answer",
+                "sql",
+                "reason"
+            ]
+        }
     )
-
-    if not response:
-        return None
-
-    try:
-
-        return validate_sql(
-            response.text.strip()
-        )
-
-    except Exception as e:
-
-        print("SQL validation error:", e)
-
-        return None
 
 
 # =========================================================
-# GENERATE DIAGNOSTIC PLAN
+# DIAGNOSTIC PLAN
 # =========================================================
 
 def generate_diagnostic_plan(question):
@@ -349,198 +367,235 @@ def generate_diagnostic_plan(question):
     prompt = f"""
 You are a senior business data analyst.
 
-Investigate the user's question using actual SQL Server data.
+The user is asking a diagnostic business question.
 
 DATABASE SCHEMA:
-
 {SCHEMA}
 
 USER QUESTION:
-
 {question}
 
-The question may require multiple SQL analyses.
+Your job is to identify the SMALL NUMBER of SQL analyses
+needed to investigate the question using actual data.
 
-Create a diagnostic plan containing relevant
-SQL Server SELECT queries.
+Rules:
 
-Possible dimensions:
+1. Generate no more than 8 SQL SELECT queries.
+2. Every query must use customer_table.
+3. Every query must be directly relevant to the question.
+4. Do not collect unrelated metrics.
+5. Do not dump the entire database.
+6. Do not invent columns.
+7. Use purchase_amt for revenue/spending.
+8. Do not use dates.
+9. Customer segments must be derived from previous_purchases.
+10. Queries must be Microsoft SQL Server compatible.
+11. No INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, EXEC, etc.
+12. No SQL comments.
+13. Do not make causal claims.
+14. Investigate measurable differences and associations only.
+15. Keep each query focused.
 
-- category
-- location
-- customer segment
-- subscription status
-- discount status
-- age group
-- gender
-- shipping type
-- payment method
-- season
-- purchase frequency
-- review rating
-- purchase amount
-- item purchased
+Return JSON only:
 
-Customer segment:
+{{
+    "can_answer": true,
+    "queries": [
+        {{
+            "purpose": "What this query investigates",
+            "sql": "SELECT ..."
+        }}
+    ]
+}}
 
-New:
-previous_purchases = 1
+If the question cannot reasonably be investigated from this
+dataset, return:
 
-Returning:
-previous_purchases BETWEEN 2 AND 10
-
-Loyal:
-previous_purchases > 10
-
-RULES:
-
-1. Use only customer_table.
-2. Use only existing columns.
-3. Only SELECT queries.
-4. Do not modify data.
-5. Do not invent values.
-6. Do not use dates.
-7. Keep queries relevant to the question.
-8. Maximum 8 queries.
-9. Return JSON only.
-
-FORMAT:
-
-[
-    {{
-        "purpose": "short description",
-        "sql": "SQL query"
-    }}
-]
+{{
+    "can_answer": false,
+    "queries": []
+}}
 """
 
-    config = types.GenerateContentConfig(
-        temperature=0,
-        response_mime_type="application/json"
-    )
-
-    response = generate_ai_response(
+    return call_gemini(
         prompt,
-        config=config
+        response_schema={
+            "type": "OBJECT",
+            "properties": {
+                "can_answer": {
+                    "type": "BOOLEAN"
+                },
+                "queries": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "purpose": {
+                                "type": "STRING"
+                            },
+                            "sql": {
+                                "type": "STRING"
+                            }
+                        },
+                        "required": [
+                            "purpose",
+                            "sql"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "can_answer",
+                "queries"
+            ]
+        }
     )
-
-    if not response:
-        return None
-
-    try:
-
-        return json.loads(
-            response.text
-        )
-
-    except Exception as e:
-
-        print(
-            "Diagnostic plan parsing error:",
-            e
-        )
-
-        return None
 
 
 # =========================================================
-# STRUCTURED FINAL ANALYSIS
+# FINAL BUSINESS ANALYSIS
 # =========================================================
 
 def generate_final_analysis(
     question,
-    evidence
+    evidence,
+    diagnostic=False
 ):
 
     prompt = f"""
-You are a senior business data analyst.
+You are a professional business analyst.
 
-Answer the user's question using ONLY the
-SQL evidence provided.
+Answer the user's question using ONLY the SQL evidence provided.
 
 DATABASE SCHEMA:
-
 {SCHEMA}
 
 USER QUESTION:
-
 {question}
 
 SQL EVIDENCE:
-
 {evidence}
 
-Your job is to determine exactly what information
-is necessary to answer the user's question.
+IMPORTANT PRINCIPLE:
 
-Do NOT dump unrelated information.
-
-Return JSON ONLY using this structure:
-
-{{
-    "answer": "Direct answer to the question",
-    "supporting_data": [
-        {{
-            "label": "Relevant metric or item",
-            "value": "Actual value from evidence"
-        }}
-    ],
-    "recommendation": "Evidence-based recommendation if the question requires one, otherwise empty string",
-    "has_recommendation": false
-}}
+SQL calculates the evidence.
+You interpret the evidence.
+Do not invent information.
 
 RULES:
 
-1. Use ONLY information present in SQL evidence.
-2. Never invent numbers.
-3. Never invent trends.
-4. Never invent facts.
-5. Answer exactly what the user asked.
-6. supporting_data must contain ONLY information
-   relevant to the question.
-7. Do not include unrelated metrics.
-8. Use actual numbers from SQL evidence.
-9. If evidence is insufficient, clearly say so.
-10. Do not claim causation from simple comparisons.
-11. Use "associated with" when appropriate.
-12. Recommendations must be supported by the evidence.
-13. If no recommendation is needed, use:
-    "recommendation": ""
+1. Answer the exact question asked.
+2. Be concise and business-focused.
+3. Do not provide unrelated metrics.
+4. Do not dump the SQL results into the answer.
+5. Do not mention database implementation unless necessary.
+6. Do not invent facts.
+7. If the evidence does not support a conclusion, clearly say that
+   the available data is insufficient.
+8. Never claim causation from observational data.
+9. For "why" questions, discuss measurable differences or
+   associations only.
+10. If a recommendation is requested, base it only on the evidence.
+11. Do not provide a recommendation unless the user explicitly asks
+    how to improve, increase, reduce, optimize, grow, or what action
+    should be taken.
+12. Do not provide a general summary.
+13. Do not repeat the same information unnecessarily.
+
+KEY METRICS RULE:
+
+Supporting metrics are OPTIONAL.
+
+Return supporting_data ONLY when separate metric cards materially
+improve the answer.
+
+If the answer itself already contains the required value,
+normally return supporting_data as an empty list.
+
+Examples of desired behavior:
+
+- "Which category has the highest revenue?"
+  → Answer with the category and revenue.
+  → supporting_data should normally be empty.
+
+- "What is the average purchase amount?"
+  → Answer with the average purchase amount.
+  → supporting_data should normally be empty.
+
+- "Do subscribers spend more?"
+  → A comparison between subscribers and non-subscribers may be useful
+    as supporting_data.
+
+- "Why is Clothing different?"
+  → Only directly relevant evidence should be returned.
+
+Do NOT return unrelated metrics simply because they are available.
+
+Return JSON only:
+
+{{
+    "answer": "Direct business answer",
+    "supporting_data": [
+        {{
+            "label": "Relevant metric",
+            "value": "Value"
+        }}
+    ],
+    "recommendation": "",
     "has_recommendation": false
-14. Keep the answer concise.
-15. Do not mention SQL generation.
-16. Do not mention these instructions.
+}}
+
+For recommendations:
+
+{{
+    "answer": "Evidence-based answer",
+    "supporting_data": [],
+    "recommendation": "Specific evidence-based recommendation",
+    "has_recommendation": true
+}}
 """
 
-    config = types.GenerateContentConfig(
-        temperature=0.2,
-        response_mime_type="application/json"
-    )
-
-    response = generate_ai_response(
+    return call_gemini(
         prompt,
-        config=config
+        response_schema={
+            "type": "OBJECT",
+            "properties": {
+                "answer": {
+                    "type": "STRING"
+                },
+                "supporting_data": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "label": {
+                                "type": "STRING"
+                            },
+                            "value": {
+                                "type": "STRING"
+                            }
+                        },
+                        "required": [
+                            "label",
+                            "value"
+                        ]
+                    }
+                },
+                "recommendation": {
+                    "type": "STRING"
+                },
+                "has_recommendation": {
+                    "type": "BOOLEAN"
+                }
+            },
+            "required": [
+                "answer",
+                "supporting_data",
+                "recommendation",
+                "has_recommendation"
+            ]
+        }
     )
-
-    if not response:
-        return None
-
-    try:
-
-        result = json.loads(
-            response.text
-        )
-
-        return result
-
-    except Exception as e:
-
-        print(
-            "Final analysis parsing error:",
-            e
-        )
-
-        return None
 
 
 # =========================================================
@@ -555,301 +610,408 @@ def analyze_question(question):
 
         return {
             "success": False,
-            "answer": "Please enter a question.",
+            "answer": "",
             "supporting_data": [],
             "recommendation": "",
             "has_recommendation": False,
-            "sql": None,
-            "evidence": None,
-            "diagnostic": False
+            "sql": "",
+            "evidence": "",
+            "diagnostic": False,
+            "error": "Please enter a question."
         }
 
-    # =====================================================
-    # DIAGNOSTIC QUESTION
-    # =====================================================
+    try:
 
-    if is_diagnostic_question(question):
+        # =================================================
+        # DETERMINE QUESTION TYPE
+        # =================================================
 
-        print("\nQuestion type: Diagnostic")
+        question_lower = question.lower()
+
+        is_diagnostic = any(
+            word in question_lower
+            for word in diagnostic_words
+        )
+
+
+        # =================================================
+        # NORMAL QUESTION
+        # =================================================
+
+        if not is_diagnostic:
+
+            generated = generate_normal_query(
+                question
+            )
+
+            if not generated.get("can_answer"):
+
+                return {
+                    "success": False,
+                    "answer": "",
+                    "supporting_data": [],
+                    "recommendation": "",
+                    "has_recommendation": False,
+                    "sql": "",
+                    "evidence": "",
+                    "diagnostic": False,
+                    "error": generated.get(
+                        "reason",
+                        "The question cannot be answered from the available data."
+                    )
+                }
+
+            sql = generated.get("sql", "").strip()
+
+            valid, validation_error = validate_sql(sql)
+
+            if not valid:
+
+                return {
+                    "success": False,
+                    "answer": "",
+                    "supporting_data": [],
+                    "recommendation": "",
+                    "has_recommendation": False,
+                    "sql": sql,
+                    "evidence": "",
+                    "diagnostic": False,
+                    "error": validation_error
+                }
+
+            # =============================================
+            # EXECUTE SQL
+            # =============================================
+
+            result = execute_query(sql)
+
+            if result is None:
+
+                return {
+                    "success": False,
+                    "answer": "",
+                    "supporting_data": [],
+                    "recommendation": "",
+                    "has_recommendation": False,
+                    "sql": sql,
+                    "evidence": "",
+                    "diagnostic": False,
+                    "error": "Unable to execute the SQL query."
+                }
+
+            evidence = format_result(result)
+
+            if not evidence:
+
+                return {
+                    "success": False,
+                    "answer": "",
+                    "supporting_data": [],
+                    "recommendation": "",
+                    "has_recommendation": False,
+                    "sql": sql,
+                    "evidence": "",
+                    "diagnostic": False,
+                    "error": "No data was returned for this question."
+                }
+
+            # =============================================
+            # FINAL ANSWER
+            # =============================================
+
+            final_result = generate_final_analysis(
+                question,
+                evidence,
+                diagnostic=False
+            )
+
+            return {
+                "success": True,
+                "answer": final_result.get(
+                    "answer",
+                    ""
+                ),
+                "supporting_data": final_result.get(
+                    "supporting_data",
+                    []
+                ),
+                "recommendation": final_result.get(
+                    "recommendation",
+                    ""
+                ),
+                "has_recommendation": final_result.get(
+                    "has_recommendation",
+                    False
+                ),
+                "sql": sql,
+                "evidence": evidence,
+                "diagnostic": False
+            }
+
+
+        # =================================================
+        # DIAGNOSTIC QUESTION
+        # =================================================
 
         plan = generate_diagnostic_plan(
             question
         )
 
-        if not plan:
+        if not plan.get("can_answer"):
 
             return {
                 "success": False,
-                "answer": "Unable to generate diagnostic analysis.",
+                "answer": "",
                 "supporting_data": [],
                 "recommendation": "",
                 "has_recommendation": False,
-                "sql": None,
-                "evidence": None,
-                "diagnostic": True
+                "sql": "",
+                "evidence": "",
+                "diagnostic": True,
+                "error": "The available data is not sufficient to investigate this question."
             }
 
-        evidence_sections = []
-        executed_queries = []
+        queries = plan.get(
+            "queries",
+            []
+        )
 
-        for index, item in enumerate(plan):
+        if not queries:
 
-            if index >= 8:
-                break
+            return {
+                "success": False,
+                "answer": "",
+                "supporting_data": [],
+                "recommendation": "",
+                "has_recommendation": False,
+                "sql": "",
+                "evidence": "",
+                "diagnostic": True,
+                "error": "No relevant analysis could be generated."
+            }
 
-            purpose = item.get(
-                "purpose",
-                f"Analysis {index + 1}"
-            )
 
-            sql = item.get(
+        # =================================================
+        # EXECUTE DIAGNOSTIC QUERIES
+        # =================================================
+
+        evidence_blocks = []
+        sql_blocks = []
+
+        for index, query_info in enumerate(
+            queries,
+            start=1
+        ):
+
+            sql = query_info.get(
                 "sql",
                 ""
+            ).strip()
+
+            purpose = query_info.get(
+                "purpose",
+                f"Analysis {index}"
             )
 
-            try:
+            valid, validation_error = validate_sql(
+                sql
+            )
 
-                sql = validate_sql(sql)
-
-            except Exception as e:
-
-                print(
-                    f"Skipping invalid query "
-                    f"{index + 1}: {e}"
-                )
+            if not valid:
 
                 continue
 
-            print(
-                f"Running diagnostic query "
-                f"{index + 1}: {purpose}"
-            )
-
             result = execute_query(sql)
 
-            if not result:
+            if result is None:
+
                 continue
 
             formatted = format_result(
                 result
             )
 
-            evidence_sections.append(
-                f"""
-Analysis: {purpose}
+            if not formatted:
 
-SQL:
-{sql}
+                continue
 
-Result:
-{formatted}
-"""
+            sql_blocks.append(
+                f"-- {purpose}\n{sql}"
             )
 
-            executed_queries.append({
-                "purpose": purpose,
-                "sql": sql,
-                "result": result
-            })
+            evidence_blocks.append(
+                f"Analysis: {purpose}\n"
+                f"{formatted}"
+            )
 
-        if not evidence_sections:
+
+        # =================================================
+        # CHECK WHETHER ANY EVIDENCE EXISTS
+        # =================================================
+
+        if not evidence_blocks:
 
             return {
                 "success": False,
-                "answer": (
-                    "No usable evidence was retrieved "
-                    "from the database."
-                ),
+                "answer": "",
                 "supporting_data": [],
                 "recommendation": "",
                 "has_recommendation": False,
-                "sql": executed_queries,
-                "evidence": None,
-                "diagnostic": True
+                "sql": "",
+                "evidence": "",
+                "diagnostic": True,
+                "error": "No usable evidence was returned from the database."
             }
 
-        evidence = "\n".join(
-            evidence_sections
+
+        evidence = "\n\n".join(
+            evidence_blocks
         )
 
-        analysis = generate_final_analysis(
+        combined_sql = "\n\n".join(
+            sql_blocks
+        )
+
+
+        # =================================================
+        # FINAL DIAGNOSTIC ANSWER
+        # =================================================
+
+        final_result = generate_final_analysis(
             question,
-            evidence
+            evidence,
+            diagnostic=True
         )
-
-        if not analysis:
-
-            return {
-                "success": False,
-                "answer": (
-                    "Unable to generate the final AI analysis."
-                ),
-                "supporting_data": [],
-                "recommendation": "",
-                "has_recommendation": False,
-                "sql": executed_queries,
-                "evidence": evidence,
-                "diagnostic": True
-            }
 
         return {
             "success": True,
-            "answer": analysis.get(
+            "answer": final_result.get(
                 "answer",
                 ""
             ),
-            "supporting_data": analysis.get(
+            "supporting_data": final_result.get(
                 "supporting_data",
                 []
             ),
-            "recommendation": analysis.get(
+            "recommendation": final_result.get(
                 "recommendation",
                 ""
             ),
-            "has_recommendation": analysis.get(
+            "has_recommendation": final_result.get(
                 "has_recommendation",
                 False
             ),
-            "sql": executed_queries,
+            "sql": combined_sql,
             "evidence": evidence,
             "diagnostic": True
         }
 
-    # =====================================================
-    # NORMAL QUESTION
-    # =====================================================
 
-    print("\nQuestion type: Normal")
-
-    sql = generate_normal_query(
-        question
-    )
-
-    if not sql:
+    except Exception as e:
 
         return {
             "success": False,
-            "answer": "Unable to generate a valid SQL query.",
+            "answer": "",
             "supporting_data": [],
             "recommendation": "",
             "has_recommendation": False,
-            "sql": None,
-            "evidence": None,
-            "diagnostic": False
+            "sql": "",
+            "evidence": "",
+            "diagnostic": False,
+            "error": str(e)
         }
-
-    print("\nGenerated SQL:")
-    print(sql)
-
-    result = execute_query(
-        sql
-    )
-
-    if not result:
-
-        return {
-            "success": False,
-            "answer": (
-                "The generated SQL query "
-                "could not be executed."
-            ),
-            "supporting_data": [],
-            "recommendation": "",
-            "has_recommendation": False,
-            "sql": sql,
-            "evidence": None,
-            "diagnostic": False
-        }
-
-    evidence = format_result(
-        result
-    )
-
-    analysis = generate_final_analysis(
-        question,
-        evidence
-    )
-
-    if not analysis:
-
-        return {
-            "success": False,
-            "answer": (
-                "Unable to generate the final AI answer."
-            ),
-            "supporting_data": [],
-            "recommendation": "",
-            "has_recommendation": False,
-            "sql": sql,
-            "evidence": evidence,
-            "diagnostic": False
-        }
-
-    return {
-        "success": True,
-        "answer": analysis.get(
-            "answer",
-            ""
-        ),
-        "supporting_data": analysis.get(
-            "supporting_data",
-            []
-        ),
-        "recommendation": analysis.get(
-            "recommendation",
-            ""
-        ),
-        "has_recommendation": analysis.get(
-            "has_recommendation",
-            False
-        ),
-        "sql": sql,
-        "evidence": evidence,
-        "diagnostic": False
-    }
 
 
 # =========================================================
-# CLI MODE
+# COMMAND LINE MODE
 # =========================================================
 
 if __name__ == "__main__":
 
-    print("\n======================================")
+    print("=" * 50)
     print(" AI CUSTOMER BEHAVIOR ANALYZER")
     print(" Powered by Gemini + SQL Server")
-    print("======================================")
+    print("=" * 50)
 
-    question = input(
-        "\nAsk your question: "
-    )
+    while True:
 
-    result = analyze_question(
-        question
-    )
+        question = input(
+            "\nAsk your question: "
+        ).strip()
 
-    print("\n======================================")
-    print(" ANSWER")
-    print("======================================")
+        if not question:
+            continue
 
-    print(
-        result["answer"]
-    )
+        if question.lower() in [
+            "exit",
+            "quit"
+        ]:
+            break
 
-    if result["supporting_data"]:
+        print("\nAnalyzing question...")
 
-        print("\nSupporting Data:")
+        result = analyze_question(
+            question
+        )
 
-        for item in result["supporting_data"]:
+        if result.get("success"):
 
+            print("\nANSWER")
+            print("-" * 40)
             print(
-                f"{item['label']}: {item['value']}"
+                result.get(
+                    "answer",
+                    ""
+                )
             )
 
-    if result["has_recommendation"]:
+            supporting_data = result.get(
+                "supporting_data",
+                []
+            )
 
-        print("\nRecommendation:")
+            if supporting_data:
 
-        print(
-            result["recommendation"]
-        )
+                print("\nKEY METRICS")
+                print("-" * 40)
+
+                for metric in supporting_data:
+
+                    print(
+                        f"{metric.get('label')}: "
+                        f"{metric.get('value')}"
+                    )
+
+            if result.get(
+                "has_recommendation",
+                False
+            ):
+
+                print("\nRECOMMENDATION")
+                print("-" * 40)
+                print(
+                    result.get(
+                        "recommendation",
+                        ""
+                    )
+                )
+
+            print("\nGenerated SQL:")
+            print("-" * 40)
+            print(
+                result.get(
+                    "sql",
+                    ""
+                )
+            )
+
+        else:
+
+            print("\nERROR")
+            print("-" * 40)
+            print(
+                result.get(
+                    "error",
+                    "Unknown error."
+                )
+            )
