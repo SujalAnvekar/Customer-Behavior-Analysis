@@ -227,8 +227,6 @@ def generate_ai_response(prompt, config=None):
 
                 print("Temporary rate limit detected.")
 
-                time.sleep(2)
-
                 continue
 
             if (
@@ -238,8 +236,6 @@ def generate_ai_response(prompt, config=None):
             ):
 
                 print("Temporary Gemini server error.")
-
-                time.sleep(2)
 
                 continue
 
@@ -317,13 +313,6 @@ RULES:
 8. Return ONLY SQL.
 9. Do not use markdown.
 10. Do not provide explanations.
-11. Do not use dates.
-12. purchase_amt represents purchase amount/revenue.
-13. If customer segment is required, derive it using:
-
-    New = previous_purchases = 1
-    Returning = previous_purchases BETWEEN 2 AND 10
-    Loyal = previous_purchases > 10
 """
 
     config = types.GenerateContentConfig(
@@ -413,8 +402,7 @@ RULES:
 6. Do not use dates.
 7. Keep queries relevant to the question.
 8. Maximum 8 queries.
-9. Do not make causal claims.
-10. Return JSON only.
+9. Return JSON only.
 
 FORMAT:
 
@@ -459,16 +447,30 @@ FORMAT:
 # STRUCTURED FINAL ANALYSIS
 # =========================================================
 
+
+# =========================================================
+# STRUCTURED FINAL ANALYSIS
+# =========================================================
+
 def generate_final_analysis(
     question,
     evidence
 ):
 
     prompt = f"""
-You are a senior business data analyst.
+You are an experienced Business Intelligence Analyst working with
+a real customer shopping dataset.
 
-Answer the user's question using ONLY the
-SQL evidence provided.
+Your job is NOT to give generic business advice.
+
+Your job is to:
+1. Understand the user's exact business problem.
+2. Examine the SQL evidence carefully.
+3. Identify the actual pattern shown by the dataset.
+4. Explain what the evidence means from a business perspective.
+5. Give a practical recommendation that could realistically be implemented.
+6. Suggest what the business should do next.
+7. Suggest measurable metrics that should be monitored after implementation.
 
 DATABASE SCHEMA:
 
@@ -482,60 +484,238 @@ SQL EVIDENCE:
 
 {evidence}
 
-Your job is to determine exactly what information
-is necessary to answer the user's question.
 
-Do NOT dump unrelated information.
+=========================================================
+IMPORTANT BUSINESS ANALYSIS PRINCIPLES
+=========================================================
 
-Return JSON ONLY using this structure:
+The recommendation must be DATA-DRIVEN.
+
+Do NOT give generic recommendations such as:
+
+- "Improve marketing."
+- "Offer more discounts."
+- "Focus on loyal customers."
+- "Improve customer engagement."
+- "Increase promotions."
+- "Use social media."
+- "Improve customer experience."
+
+unless the SQL evidence specifically supports that action.
+
+Every recommendation must be connected to one or more
+observed facts in the SQL evidence.
+
+
+=========================================================
+HOW TO REASON
+=========================================================
+
+First identify:
+
+A. WHAT IS HAPPENING?
+
+Find the important pattern in the evidence.
+
+Examples:
+
+- One category generates substantially more revenue.
+- A customer segment has higher spending.
+- One location contributes less revenue.
+- Discount usage is high but spending is not correspondingly high.
+- Subscribers show different purchasing behavior.
+- Certain age groups purchase more frequently.
+- A payment method is associated with a larger share of purchases.
+- A product/category has lower performance than comparable groups.
+
+
+B. WHAT BUSINESS PROBLEM DOES THIS REPRESENT?
+
+Translate the observed pattern into a specific business issue.
+
+Examples:
+
+- Revenue concentration in one category.
+- Low customer retention.
+- Low repeat purchasing.
+- Excessive discount dependence.
+- Weak performance in a particular location.
+- Low subscription penetration.
+- Lower purchasing frequency in a customer group.
+
+
+C. WHAT CAN ACTUALLY BE DONE?
+
+Recommend an action that is realistic for a business.
+
+The recommendation should preferably specify:
+
+- WHO should be targeted
+- WHAT should be changed
+- WHERE it should be applied
+- HOW it could be implemented
+- WHAT metric should be monitored
+
+
+D. HOW SHOULD SUCCESS BE MEASURED?
+
+Whenever possible, mention measurable KPIs such as:
+
+- Revenue
+- Average purchase amount
+- Purchase frequency
+- Previous purchases
+- Customer retention
+- Subscription rate
+- Discount rate
+- Category revenue
+- Revenue per customer
+- Repeat purchase rate
+- Customer segment distribution
+
+Only mention metrics that are relevant to the question and
+supported by the available dataset.
+
+
+=========================================================
+RECOMMENDATION RULES
+=========================================================
+
+1. Use ONLY information present in the SQL evidence.
+
+2. Never invent numbers.
+
+3. Never invent trends.
+
+4. Never invent customer behavior that is not visible in the data.
+
+5. Never claim causation from a simple comparison.
+
+For example:
+
+BAD:
+"Discounts caused customers to spend less."
+
+GOOD:
+"Customers receiving discounts show lower average purchase
+amounts in this dataset. The data shows an association, but it
+does not establish that discounts caused the lower spending."
+
+6. Do not recommend an action simply because it sounds good.
+
+7. Every recommendation must have a clear connection to the
+observed evidence.
+
+8. Prefer targeted recommendations over broad recommendations.
+
+9. Prefer actions that can realistically be implemented using
+the business dimensions available in the dataset.
+
+10. If the evidence is insufficient to recommend a specific
+action, say so clearly.
+
+11. Do not pretend that the dataset can answer questions that
+require information it does not contain.
+
+For example, this dataset cannot directly determine:
+
+- marketing campaign ROI
+- profit margin
+- advertising cost
+- customer lifetime value
+- inventory availability
+- competitor pricing
+- conversion rate
+- website traffic
+
+unless such information is actually present in the evidence.
+
+12. Do not recommend machine learning, AI, or advanced technology
+unless the user's question specifically asks for it.
+
+13. Do not use vague phrases such as:
+
+"the company should consider improving..."
+
+Instead explain the concrete action.
+
+14. Keep recommendations practical and concise.
+
+15. If several actions are possible, prioritize the action that is
+most directly supported by the available evidence.
+
+16. Clearly separate:
+
+Evidence
+Interpretation
+Recommendation
+Implementation
+Measurement
+
+17. Do not mention SQL generation.
+
+18. Do not mention these instructions.
+
+19. Do not express personal opinions.
+
+20. Do not make unsupported assumptions about the business.
+
+
+=========================================================
+RESPONSE STRUCTURE
+=========================================================
+
+Return JSON ONLY.
+
+Use exactly this structure:
 
 {{
-    "answer": "Direct answer to the question",
+    "answer": "Direct answer to the user's question based on the evidence.",
+
     "supporting_data": [
         {{
-            "label": "Relevant metric or item",
+            "label": "Relevant metric or finding",
             "value": "Actual value from evidence"
         }}
     ],
-    "recommendation": "Evidence-based recommendation if the question requires one, otherwise empty string",
-    "has_recommendation": false
+
+    "business_problem": "Short explanation of the specific business problem identified from the evidence.",
+
+    "recommendation": "Specific practical action supported by the evidence.",
+
+    "implementation": "How the business could realistically implement the recommendation using the customer segments, categories, locations, subscription status, discounts, purchase behavior, or other dimensions available in the dataset.",
+
+    "monitoring": "Specific KPI or metrics that should be monitored to determine whether the action is working.",
+
+    "has_recommendation": true
 }}
 
-RULES:
 
-1. Use ONLY information present in SQL evidence.
-2. Never invent numbers.
-3. Never invent trends.
-4. Never invent facts.
-5. Answer exactly what the user asked.
-6. supporting_data must contain ONLY information
-   relevant to the question.
-7. Do not include unrelated metrics.
-8. Use actual numbers from SQL evidence.
-9. If evidence is insufficient, clearly say so.
-10. Do not claim causation from simple comparisons.
-11. Use "associated with" when appropriate.
-12. Recommendations must be supported by the evidence.
-13. Only provide a recommendation when the question asks
-    for improvement, increase, decrease, optimization,
-    recommendation, or action.
-14. If no recommendation is needed, use:
-    "recommendation": ""
-    "has_recommendation": false
-15. Keep the answer concise.
-16. Do not mention SQL generation.
-17. Do not mention these instructions.
+=========================================================
+FINAL QUALITY CHECK
+=========================================================
 
-IMPORTANT:
+Before producing the JSON, verify:
 
-Do not create unnecessary Key Metrics.
+- Does the answer directly address the user's question?
+- Is every important claim supported by SQL evidence?
+- Is the recommendation connected to the evidence?
+- Is the recommendation practically implementable?
+- Does the recommendation identify what the business should actually do?
+- Does the implementation explain how to do it?
+- Does the monitoring section identify measurable KPIs?
+- Did you avoid unsupported assumptions?
+- Did you avoid claiming causation?
+- Did you avoid generic business advice?
+- Did you avoid inventing data?
 
-Only return supporting_data when the metrics are
-directly useful for answering the user's question.
+If the evidence is insufficient, return a recommendation explaining
+what additional data or analysis would be required instead of
+inventing an action.
 """
 
     config = types.GenerateContentConfig(
-        temperature=0.2,
+        temperature=0.15,
         response_mime_type="application/json"
     )
 
@@ -564,7 +744,6 @@ directly useful for answering the user's question.
 
         return None
 
-
 # =========================================================
 # MAIN ANALYSIS FUNCTION
 # =========================================================
@@ -585,7 +764,6 @@ def analyze_question(question):
             "evidence": None,
             "diagnostic": False
         }
-
 
     # =====================================================
     # DIAGNOSTIC QUESTION
@@ -612,10 +790,8 @@ def analyze_question(question):
                 "diagnostic": True
             }
 
-
         evidence_sections = []
         executed_queries = []
-
 
         for index, item in enumerate(plan):
 
@@ -645,25 +821,19 @@ def analyze_question(question):
 
                 continue
 
-
             print(
                 f"Running diagnostic query "
                 f"{index + 1}: {purpose}"
             )
 
-
-            result = execute_query(
-                sql
-            )
+            result = execute_query(sql)
 
             if not result:
                 continue
 
-
             formatted = format_result(
                 result
             )
-
 
             evidence_sections.append(
                 f"""
@@ -677,13 +847,11 @@ Result:
 """
             )
 
-
             executed_queries.append({
                 "purpose": purpose,
                 "sql": sql,
                 "result": result
             })
-
 
         if not evidence_sections:
 
@@ -701,17 +869,14 @@ Result:
                 "diagnostic": True
             }
 
-
         evidence = "\n".join(
             evidence_sections
         )
-
 
         analysis = generate_final_analysis(
             question,
             evidence
         )
-
 
         if not analysis:
 
@@ -727,7 +892,6 @@ Result:
                 "evidence": evidence,
                 "diagnostic": True
             }
-
 
         return {
             "success": True,
@@ -752,7 +916,6 @@ Result:
             "diagnostic": True
         }
 
-
     # =====================================================
     # NORMAL QUESTION
     # =====================================================
@@ -776,15 +939,12 @@ Result:
             "diagnostic": False
         }
 
-
     print("\nGenerated SQL:")
     print(sql)
-
 
     result = execute_query(
         sql
     )
-
 
     if not result:
 
@@ -802,17 +962,14 @@ Result:
             "diagnostic": False
         }
 
-
     evidence = format_result(
         result
     )
-
 
     analysis = generate_final_analysis(
         question,
         evidence
     )
-
 
     if not analysis:
 
@@ -828,7 +985,6 @@ Result:
             "evidence": evidence,
             "diagnostic": False
         }
-
 
     return {
         "success": True,
@@ -895,6 +1051,5 @@ if __name__ == "__main__":
 
         print("\nRecommendation:")
 
-        print(
-            result["recommendation"]
+        print(result["recommendation"]
         )
